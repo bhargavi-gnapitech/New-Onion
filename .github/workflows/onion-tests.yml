@@ -39,7 +39,7 @@ jobs:
 
       # Install Playwright with browsers
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
+        run: npx playwright install --with-deps --only-chromium
 
       # Run tests
       - name: Run Tests
