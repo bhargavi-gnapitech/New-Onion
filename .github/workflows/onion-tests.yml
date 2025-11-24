@@ -1,0 +1,83 @@
+name: Test Client Onion
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:         # 👈 Required for DB correlation
+        description: "Unique request ID for tracking"
+        required: true
+      testRunId:
+        description: "Test run ID (optional)"
+        required: false
+      tags:
+        description: "Tags to filter tests (optional)"
+        required: false
+        default: ""
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.branch }}
+
+      # Set commit author
+      - name: Set Commit Author
+        run: echo "COMMIT_AUTHOR=${{ github.event.client_payload.commit_author }}" >> $GITHUB_ENV
+
+      # Install deps once
+      - name: Install Dependencies
+        run: npm ci
+
+      # Install npm-run-all
+      - name: Install npm-run-all
+        run: npm install npm-run-all --save-dev
+
+      # Install Playwright with browsers
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+
+      # Run tests
+      - name: Run Tests
+        run: npm test
+        env:
+          npm_config_TAGS: ${{ github.event.client_payload.tags }}
+          COMMIT_AUTHOR: ${{ github.event.client_payload.commit_author }}
+
+      # Upload JSON report
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: reports/cucumber_report.json
+
+      # Upload HTML report
+      - name: Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cucumber-report
+          path: reports/cucumber_report.html
+
+      # Update results to backend
+      - name: Update Test Results to Server
+        run: |
+          REPORT_CONTENT=$(jq -c . reports/cucumber_report.json)
+          echo "{\"commit_id\": \"${{ github.event.client_payload.commit_hash }}\", \"test_results\": $REPORT_CONTENT}" > report_payload.json
+          curl -v -X PUT https://onionserver.gnapi.tech/webhook/update \
+            -H "Content-Type: application/json" \
+            --data-binary @report_payload.json
+
+      # Display commit details
+      - name: Display Commit Details
+        run: |
+          echo "Branch: ${{ github.event.client_payload.branch }}"
+          echo "Tags: ${{ github.event.client_payload.tags }}"
+          echo "Commit Message: ${{ github.event.client_payload.commit_message }}"
+          echo "Commit Author: ${{ github.event.client_payload.commit_author }}"
+          echo "Commit Hash: ${{ github.event.client_payload.commit_hash }}"
